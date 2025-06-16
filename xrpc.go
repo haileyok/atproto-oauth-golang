@@ -141,7 +141,7 @@ func PdsDpopJwt(method, url, iss, accessToken, nonce string, privateJwk jwk.Key)
 	return tokenString, nil
 }
 
-func (c *XrpcClient) Do(ctx context.Context, authedArgs *XrpcAuthedRequestArgs, kind xrpc.XRPCRequestType, inpenc, method string, params map[string]any, bodyobj any, out any) error {
+func (c *XrpcClient) Do(ctx context.Context, authedArgs *XrpcAuthedRequestArgs, kind string, inpenc, method string, params map[string]any, bodyobj any, out any) error {
 	// we might have to retry the request if we get a new nonce from the server
 	for range 2 {
 		var body io.Reader
@@ -165,7 +165,7 @@ func (c *XrpcClient) Do(ctx context.Context, authedArgs *XrpcAuthedRequestArgs, 
 		case xrpc.Procedure:
 			m = "POST"
 		default:
-			return fmt.Errorf("unsupported request kind: %d", kind)
+			return fmt.Errorf("unsupported request kind: %s", kind)
 		}
 
 		var paramStr string

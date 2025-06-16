@@ -3,9 +3,9 @@ module github.com/haileyok/atproto-oauth-golang
 go 1.24.0
 
 require (
-	github.com/bluesky-social/indigo v0.0.0-20250301025210-a4e0cc37e188
+	github.com/bluesky-social/indigo v0.0.0-20250616202859-d4516ea1d6cf
 	github.com/carlmjohnson/versioninfo v0.22.5
-	github.com/golang-jwt/jwt/v5 v5.2.1
+	github.com/golang-jwt/jwt/v5 v5.2.2
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/sessions v1.4.0
 	github.com/joho/godotenv v1.5.1
