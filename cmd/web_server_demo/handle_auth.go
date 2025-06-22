@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"strings"
 	"time"
@@ -100,8 +101,15 @@ func (s *TestServer) handleLoginSubmit(e echo.Context) error {
 		return err
 	}
 
+	params := url.Values{
+		"client_id":   {s.args.UrlRoot + serverMetadataPath},
+		"request_uri": {parResp.RequestUri},
+		"ext-one":     {"hello"},
+		"ext-two":     {"world"},
+	}
+
 	u, _ := url.Parse(meta.AuthorizationEndpoint)
-	u.RawQuery = fmt.Sprintf("client_id=%s&request_uri=%s", url.QueryEscape(s.args.UrlRoot+serverMetadataPath), parResp.RequestUri)
+	u.RawQuery = params.Encode()
 
 	sess, err := session.Get("session", e)
 	if err != nil {
@@ -115,7 +123,7 @@ func (s *TestServer) handleLoginSubmit(e echo.Context) error {
 	}
 
 	// make sure the session is empty
-	sess.Values = map[interface{}]interface{}{}
+	sess.Values = map[any]any{}
 	sess.Values["oauth_state"] = parResp.State
 	sess.Values["oauth_did"] = did
 
@@ -127,9 +135,10 @@ func (s *TestServer) handleLoginSubmit(e echo.Context) error {
 }
 
 func (s *TestServer) handleCallback(e echo.Context) error {
-	resState := e.QueryParam("state")
-	resIss := e.QueryParam("iss")
-	resCode := e.QueryParam("code")
+	params := e.QueryParams()
+	state := params.Get("state")
+	iss := params.Get("iss")
+	code := params.Get("code")
 
 	sess, err := session.Get("session", e)
 	if err != nil {
@@ -138,11 +147,11 @@ func (s *TestServer) handleCallback(e echo.Context) error {
 
 	sessState := sess.Values["oauth_state"]
 
-	if resState == "" || resIss == "" || resCode == "" {
+	if state == "" || iss == "" || code == "" {
 		return fmt.Errorf("request missing needed parameters")
 	}
 
-	if resState != sessState {
+	if state != sessState {
 		return fmt.Errorf("session state does not match response state")
 	}
 
@@ -155,7 +164,7 @@ func (s *TestServer) handleCallback(e echo.Context) error {
 		return err
 	}
 
-	if resIss != oauthRequest.AuthserverIss {
+	if iss != oauthRequest.AuthserverIss {
 		return fmt.Errorf("incoming iss did not match authserver iss")
 	}
 
@@ -164,7 +173,7 @@ func (s *TestServer) handleCallback(e echo.Context) error {
 		return err
 	}
 
-	initialTokenResp, err := s.oauthClient.InitialTokenRequest(e.Request().Context(), resCode, resIss, oauthRequest.PkceVerifier, oauthRequest.DpopAuthserverNonce, jwk)
+	initialTokenResp, err := s.oauthClient.InitialTokenRequest(e.Request().Context(), code, iss, oauthRequest.PkceVerifier, oauthRequest.DpopAuthserverNonce, jwk)
 	if err != nil {
 		return err
 	}
@@ -203,12 +212,14 @@ func (s *TestServer) handleCallback(e echo.Context) error {
 	}
 
 	// make sure the session is empty
-	sess.Values = map[interface{}]interface{}{}
+	sess.Values = map[any]any{}
 	sess.Values["did"] = oauthRequest.Did
 
 	if err := sess.Save(e.Request(), e.Response()); err != nil {
 		return err
 	}
+
+	slog.Default().Info("handled callback", "params", params)
 
 	return e.Redirect(302, "/")
 }

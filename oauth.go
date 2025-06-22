@@ -252,16 +252,16 @@ func (c *Client) SendParAuthRequest(ctx context.Context, authServerUrl string, a
 		"client_assertion":      {clientAssertion},
 	}
 
+	if loginHint != "" {
+		params.Set("login_hint", loginHint)
+	}
+
 	for _, e := range extras {
 		if !strings.HasPrefix(e.Name, "ext-") {
 			e.Name = "ext-" + e.Name
 		}
 		e.Value = url.QueryEscape(e.Value)
-		params[e.Name] = []string{e.Value}
-	}
-
-	if loginHint != "" {
-		params.Set("login_hint", loginHint)
+		params.Set(e.Name, e.Value)
 	}
 
 	_, err = helpers.IsUrlSafeAndParsed(parUrl)
