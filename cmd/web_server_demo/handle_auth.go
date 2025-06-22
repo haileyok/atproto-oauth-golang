@@ -104,8 +104,6 @@ func (s *TestServer) handleLoginSubmit(e echo.Context) error {
 	params := url.Values{
 		"client_id":   {s.args.UrlRoot + serverMetadataPath},
 		"request_uri": {parResp.RequestUri},
-		"ext-one":     {"hello"},
-		"ext-two":     {"world"},
 	}
 
 	u, _ := url.Parse(meta.AuthorizationEndpoint)
