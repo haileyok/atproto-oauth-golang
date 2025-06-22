@@ -2,3 +2,4 @@ cmd/client_test/client_test
 jwks.json
 .env
 oauth.db
+oauth

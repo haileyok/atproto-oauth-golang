@@ -22,28 +22,41 @@ import (
 )
 
 var (
-	ctx               = context.Background()
-	serverAddr        = os.Getenv("OAUTH_TEST_SERVER_ADDR")
-	serverUrlRoot     = os.Getenv("OAUTH_TEST_SERVER_URL_ROOT")
-	staticFilePath    = os.Getenv("OAUTH_TEST_SERVER_STATIC_PATH")
-	sessionSecret     = os.Getenv("OAUTH_TEST_SESSION_SECRET")
-	serverMetadataUrl = fmt.Sprintf("%s/oauth/client-metadata.json", serverUrlRoot)
-	serverCallbackUrl = fmt.Sprintf("%s/callback", serverUrlRoot)
-	pdsUrl            = os.Getenv("OAUTH_TEST_PDS_URL")
-	scope             = "atproto transition:generic"
+	ctx                = context.Background()
+	serverMetadataPath = "/oauth/client-metadata.json"
+	serverCallbackPath = "/callback"
+	scope              = "atproto transition:generic"
 )
 
 func main() {
 	app := &cli.App{
 		Name:   "atproto-goauth-demo-webserver",
 		Action: run,
+		Flags: []cli.Flag{
+			&cli.StringFlag{
+				Name:    "addr",
+				Value:   ":8080",
+				EnvVars: []string{"OAUTH_TEST_SERVER_ADDR"},
+			},
+			&cli.StringFlag{
+				Name:     "url-root",
+				Required: true,
+				EnvVars:  []string{"OAUTH_TEST_SERVER_URL_ROOT"},
+			},
+			&cli.StringFlag{
+				Name:    "static-file-path",
+				Value:   "./cmd/web_server_demo/html",
+				EnvVars: []string{"OAUTH_TEST_SERVER_STATIC_PATH"},
+			},
+			&cli.StringFlag{
+				Name:    "session-secret",
+				Value:   "session-secret",
+				EnvVars: []string{"OAUTH_TEST_SERVER_SESSION_SECRET"},
+			},
+		},
 	}
 
-	if serverUrlRoot == "" {
-		panic(fmt.Errorf("no server url root set in env file"))
-	}
-
-	app.RunAndExitOnError()
+	app.Run(os.Args)
 }
 
 type TestServer struct {
@@ -53,14 +66,15 @@ type TestServer struct {
 	oauthClient  *oauth.Client
 	xrpcCli      *oauth.XrpcClient
 	jwksResponse *oauth_helpers.JwksResponseObject
+	args         ServerArgs
 }
 
 type TemplateRenderer struct {
 	templates *template.Template
 }
 
-func (t *TemplateRenderer) Render(w io.Writer, name string, data interface{}, c echo.Context) error {
-	if viewContext, isMap := data.(map[string]interface{}); isMap {
+func (t *TemplateRenderer) Render(w io.Writer, name string, data any, c echo.Context) error {
+	if viewContext, isMap := data.(map[string]any); isMap {
 		viewContext["reverse"] = c.Echo().Reverse
 	}
 
@@ -68,7 +82,12 @@ func (t *TemplateRenderer) Render(w io.Writer, name string, data interface{}, c 
 }
 
 func run(cmd *cli.Context) error {
-	s, err := NewServer()
+	s, err := NewServer(ServerArgs{
+		Addr:           cmd.String("addr"),
+		UrlRoot:        cmd.String("url-root"),
+		StaticFilePath: cmd.String("static-file-path"),
+		SessionSecret:  cmd.String("session-secret"),
+	})
 	if err != nil {
 		panic(err)
 	}
@@ -78,16 +97,18 @@ func run(cmd *cli.Context) error {
 	return nil
 }
 
-func NewServer() (*TestServer, error) {
+type ServerArgs struct {
+	Addr           string
+	UrlRoot        string
+	StaticFilePath string
+	SessionSecret  string
+}
+
+func NewServer(args ServerArgs) (*TestServer, error) {
 	e := echo.New()
 
 	e.Use(slogecho.New(slog.Default()))
-	e.Use(session.Middleware(sessions.NewCookieStore([]byte(sessionSecret))))
-
-	renderer := &TemplateRenderer{
-		templates: template.Must(template.ParseGlob(getFilePath("*.html"))),
-	}
-	e.Renderer = renderer
+	e.Use(session.Middleware(sessions.NewCookieStore([]byte(args.SessionSecret))))
 
 	fmt.Println("atproto goauth demo webserver")
 
@@ -113,15 +134,15 @@ func NewServer() (*TestServer, error) {
 
 	c, err := oauth.NewClient(oauth.ClientArgs{
 		ClientJwk:   k,
-		ClientId:    serverMetadataUrl,
-		RedirectUri: serverCallbackUrl,
+		ClientId:    args.UrlRoot + serverMetadataPath,
+		RedirectUri: args.UrlRoot + serverCallbackPath,
 	})
 	if err != nil {
 		return nil, err
 	}
 
 	httpd := &http.Server{
-		Addr:    serverAddr,
+		Addr:    args.Addr,
 		Handler: e,
 	}
 
@@ -140,19 +161,27 @@ func NewServer() (*TestServer, error) {
 		},
 	}
 
-	return &TestServer{
+	s := &TestServer{
 		httpd:        httpd,
 		e:            e,
 		db:           db,
 		oauthClient:  c,
 		xrpcCli:      xrpcCli,
 		jwksResponse: oauth_helpers.CreateJwksResponseObject(pubKey),
-	}, nil
+		args:         args,
+	}
+
+	renderer := &TemplateRenderer{
+		templates: template.Must(template.ParseGlob(s.getFilePath("*.html"))),
+	}
+	e.Renderer = renderer
+
+	return s, nil
 }
 
 func (s *TestServer) run() error {
 	s.e.GET("/", s.handleHome)
-	s.e.File("/login", getFilePath("login.html"))
+	s.e.File("/login", s.getFilePath("login.html"))
 	s.e.POST("/login", s.handleLoginSubmit)
 	s.e.GET("/logout", s.handleLogout)
 	s.e.GET("/profile", s.handleProfile)
@@ -160,6 +189,8 @@ func (s *TestServer) run() error {
 	s.e.GET("/callback", s.handleCallback)
 	s.e.GET("/oauth/client-metadata.json", s.handleClientMetadata)
 	s.e.GET("/oauth/jwks.json", s.handleJwks)
+
+	slog.Default().Info("starting http server", "addr", s.args.Addr)
 
 	if err := s.httpd.ListenAndServe(); err != nil {
 		return err
@@ -181,18 +212,18 @@ func (s *TestServer) handleHome(e echo.Context) error {
 
 func (s *TestServer) handleClientMetadata(e echo.Context) error {
 	metadata := map[string]any{
-		"client_id":                       serverMetadataUrl,
+		"client_id":                       s.args.UrlRoot + serverMetadataPath,
 		"client_name":                     "Atproto GoAuth Demo Webserver",
-		"client_uri":                      serverUrlRoot,
-		"logo_uri":                        fmt.Sprintf("%s/logo.png", serverUrlRoot),
-		"tos_uri":                         fmt.Sprintf("%s/tos", serverUrlRoot),
-		"policy_url":                      fmt.Sprintf("%s/policy", serverUrlRoot),
-		"redirect_uris":                   []string{serverCallbackUrl},
+		"client_uri":                      s.args.UrlRoot,
+		"logo_uri":                        fmt.Sprintf("%s/logo.png", s.args.UrlRoot),
+		"tos_uri":                         fmt.Sprintf("%s/tos", s.args.UrlRoot),
+		"policy_url":                      fmt.Sprintf("%s/policy", s.args.UrlRoot),
+		"redirect_uris":                   []string{s.args.UrlRoot + serverCallbackPath},
 		"grant_types":                     []string{"authorization_code", "refresh_token"},
 		"response_types":                  []string{"code"},
 		"application_type":                "web",
 		"dpop_bound_access_tokens":        true,
-		"jwks_uri":                        fmt.Sprintf("%s/oauth/jwks.json", serverUrlRoot),
+		"jwks_uri":                        fmt.Sprintf("%s/oauth/jwks.json", s.args.UrlRoot),
 		"scope":                           "atproto transition:generic",
 		"token_endpoint_auth_method":      "private_key_jwt",
 		"token_endpoint_auth_signing_alg": "ES256",
@@ -205,6 +236,6 @@ func (s *TestServer) handleJwks(e echo.Context) error {
 	return e.JSON(200, s.jwksResponse)
 }
 
-func getFilePath(file string) string {
-	return fmt.Sprintf("%s/%s", staticFilePath, file)
+func (s *TestServer) getFilePath(file string) string {
+	return fmt.Sprintf("%s/%s", s.args.StaticFilePath, file)
 }

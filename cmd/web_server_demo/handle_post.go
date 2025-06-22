@@ -35,5 +35,5 @@ func (s *TestServer) handleMakePost(e echo.Context) error {
 		return err
 	}
 
-	return e.File(getFilePath("make-post.html"))
+	return e.File(s.getFilePath("make-post.html"))
 }
