@@ -204,21 +204,41 @@ func (c *Client) AuthServerDpopJwt(method, url, nonce string, privateJwk jwk.Key
 	return tokenString, nil
 }
 
-func (c *Client) SendParAuthRequest(ctx context.Context, authServerUrl string, authServerMeta *OauthAuthorizationMetadata, loginHint, scope string, dpopPrivateKey jwk.Key) (*SendParAuthResponse, error) {
+type ParAuthRequestOpts struct {
+	State        string
+	PKCEVerifier string
+}
+
+func (c *Client) SendParAuthRequest(ctx context.Context, authServerUrl string, authServerMeta *OauthAuthorizationMetadata, loginHint, scope string, dpopPrivateKey jwk.Key, opts ...ParAuthRequestOpts) (*SendParAuthResponse, error) {
 	if authServerMeta == nil {
 		return nil, fmt.Errorf("nil metadata provided")
+	}
+	var opt ParAuthRequestOpts
+	if len(opts) > 0 {
+		opt = opts[0]
 	}
 
 	parUrl := authServerMeta.PushedAuthorizationRequestEndpoint
 
-	state, err := internal_helpers.GenerateToken(10)
-	if err != nil {
-		return nil, fmt.Errorf("could not generate state token: %w", err)
+	var state string
+	var err error
+	if opt.State != "" {
+		state = opt.State
+	} else {
+		state, err = internal_helpers.GenerateToken(10)
+		if err != nil {
+			return nil, fmt.Errorf("could not generate state token: %w", err)
+		}
 	}
 
-	pkceVerifier, err := internal_helpers.GenerateToken(48)
-	if err != nil {
-		return nil, fmt.Errorf("could not generate pkce verifier: %w", err)
+	var pkceVerifier string
+	if opt.PKCEVerifier != "" {
+		pkceVerifier = opt.PKCEVerifier
+	} else {
+		pkceVerifier, err = internal_helpers.GenerateToken(48)
+		if err != nil {
+			return nil, fmt.Errorf("could not generate pkce verifier: %w", err)
+		}
 	}
 
 	codeChallenge := internal_helpers.GenerateCodeChallenge(pkceVerifier)
