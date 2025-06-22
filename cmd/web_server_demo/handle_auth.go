@@ -101,7 +101,7 @@ func (s *TestServer) handleLoginSubmit(e echo.Context) error {
 	}
 
 	u, _ := url.Parse(meta.AuthorizationEndpoint)
-	u.RawQuery = fmt.Sprintf("client_id=%s&request_uri=%s", url.QueryEscape(serverMetadataUrl), parResp.RequestUri)
+	u.RawQuery = fmt.Sprintf("client_id=%s&request_uri=%s", url.QueryEscape(s.args.UrlRoot+serverMetadataPath), parResp.RequestUri)
 
 	sess, err := session.Get("session", e)
 	if err != nil {
