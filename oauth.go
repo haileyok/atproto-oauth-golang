@@ -204,7 +204,12 @@ func (c *Client) AuthServerDpopJwt(method, url, nonce string, privateJwk jwk.Key
 	return tokenString, nil
 }
 
-func (c *Client) SendParAuthRequest(ctx context.Context, authServerUrl string, authServerMeta *OauthAuthorizationMetadata, loginHint, scope string, dpopPrivateKey jwk.Key) (*SendParAuthResponse, error) {
+type ParAuthRequestExtra struct {
+	Name  string
+	Value string
+}
+
+func (c *Client) SendParAuthRequest(ctx context.Context, authServerUrl string, authServerMeta *OauthAuthorizationMetadata, loginHint, scope string, dpopPrivateKey jwk.Key, extras ...ParAuthRequestExtra) (*SendParAuthResponse, error) {
 	if authServerMeta == nil {
 		return nil, fmt.Errorf("nil metadata provided")
 	}
@@ -245,6 +250,14 @@ func (c *Client) SendParAuthRequest(ctx context.Context, authServerUrl string, a
 		"scope":                 {scope},
 		"client_assertion_type": {"urn:ietf:params:oauth:client-assertion-type:jwt-bearer"},
 		"client_assertion":      {clientAssertion},
+	}
+
+	for _, e := range extras {
+		if !strings.HasPrefix(e.Name, "ext-") {
+			e.Name = "ext-" + e.Name
+		}
+		e.Value = url.QueryEscape(e.Value)
+		params[e.Name] = []string{e.Value}
 	}
 
 	if loginHint != "" {
